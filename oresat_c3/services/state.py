@@ -101,7 +101,7 @@ class StateService(Service):
         if not self._tx_enable_obj.value:
             self._last_tx_enable_obj.value = 0
 
-        # The EDL (Emergency Downlink) state should not persist across restarts.
+        # The EDL (Engineering Data Link) state should not persist across restarts.
         # If the satellite was in EDL, transition it to STANDBY.
         if self._c3_state_obj.value == C3State.EDL:
             self._c3_state_obj.value = C3State.STANDBY.value
@@ -217,7 +217,7 @@ class StateService(Service):
         monitoring its health and the environment. It checks for critical events
         in a specific priority order.
         """
-        # 1. Check for EDL timeout: If an Emergency Downlink is active,
+        # 1. Check for EDL timeout: If an Engineering Data Link is active,
         #    immediately switch to EDL state.
         if self.has_edl_timed_out:
             self._c3_state_obj.value = C3State.EDL.value
@@ -237,7 +237,7 @@ class StateService(Service):
         signals with telemetry data. It continuously checks conditions to ensure
         it's safe to keep transmitting.
         """
-        # 1. Check for EDL timeout: If an Emergency Downlink is triggered,
+        # 1. Check for EDL timeout: If an Engineering Data Link is triggered,
         #    immediately switch to EDL state, overriding beaconing.
         if self.has_edl_timed_out:
             self._c3_state_obj.value = C3State.EDL.value
@@ -253,9 +253,9 @@ class StateService(Service):
 
     def _edl(self):
         """
-        EDL (Emergency Downlink) is a high-priority state triggered to ensure
+        EDL (Engineering Data Link) is a high-priority state triggered to ensure
         communication with the ground. The satellite will stay in this mode
-        until the emergency condition is cleared.
+        until the EDL condition is cleared.
         """
         # If the EDL timeout has expired, transition to a new state.
         if not self.has_edl_timed_out:
@@ -332,7 +332,7 @@ class StateService(Service):
     @property
     def has_edl_timed_out(self) -> bool:
         """
-        Checks if the EDL (Emergency Downlink) mode is currently active.
+        Checks if the EDL (Engineering Data Link) mode is currently active.
 
         Note: The name is slightly misleading. This property returns True if the
         time since the last EDL packet was received is *less than* the EDL timeout,
