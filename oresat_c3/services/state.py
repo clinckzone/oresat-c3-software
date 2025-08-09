@@ -35,7 +35,11 @@ class StateService(Service):
     def __init__(self, fram_objs: list, mock_hw: bool = False):
         super().__init__()
 
+        # It stores important CANopen Object Dictionary variables 
+        # that should be saved to/restored from F-RAM.
         self._fram_objs = fram_objs
+        
+        # F-RAM Driver
         self._fram = Fm24cl64b(self.I2C_BUS_NUM, self.FRAM_I2C_ADDR, mock_hw)
         self._antennas = Antennas(mock_hw)
 
@@ -370,18 +374,29 @@ class StateService(Service):
         if self._c3_state_obj.value == C3State.PRE_DEPLOY:
             return
 
+        # Tracks the current position in F-RAM memory where data
+        # will be written. Note: F-RAM is accessed sequentially.
         offset = 0
+        
+        # Iterate over all CANopen objects that need to persist in F-RAM
         for obj in self._fram_objs:
+            
+            # Skip objects of type DOMAIN as they have variable size
             if obj.data_type == canopen.objectdictionary.DOMAIN:
                 continue
-
+            
+            # OCTET_STRING is a sequence (array) of raw bytes whose value
+            # we can store as it is since its already in raw bytes.
             if obj.data_type == canopen.objectdictionary.OCTET_STRING:
-                raw = obj.value
+                raw = obj.value 
                 raw_len = len(obj.default)
+            # For other data types, we need to encode its value into raw bytes
             else:
                 raw = obj.encode_raw(obj.value)
                 raw_len = len(raw)
-
+            
+            # Write data to F-RAM, and increase the offset based on
+            # the length of the raw data.
             self._fram.write(offset, raw)
             offset += raw_len
 
@@ -390,44 +405,71 @@ class StateService(Service):
         Restores the state from F-RAM by reading the values of all
         registered F-RAM objects.
         """
+        
+        # To track the current position in F-RAM where data will be written
         offset = 0
+        
+        # Iterate over _fram_objs. These CANopen objects are created and 
+        # configured by OLAF app when it's being setup in __main__.py
         for obj in self._fram_objs:
+            
+            # Skip over DOMAIN objects
             if obj.data_type == canopen.objectdictionary.DOMAIN:
                 continue
-
+            
+            # Since OCTET_STRING stores raw bytes, we can directly read
+            # value from F-RAM and store in its corresponding object 
             if obj.data_type == canopen.objectdictionary.OCTET_STRING:
                 size = len(obj.default)
                 obj.value = self._fram.read(offset, size)
+            # For other types:
             else:
+                # Get the size of the object data from its default value.
                 size = len(obj.encode_raw(obj.default))
+                
+                # Read the raw bytes from F-RAM.
                 raw = self._fram.read(offset, size)
-                # If F-RAM is empty, the status will be empty. Default to PRE_DEPLOY.
+                
+                # If F-RAM is empty, the status object being read from 
+                # F-RAM will also be empty. Default to PRE_DEPLOY in this case.
                 if obj.name == "status":
                     raw = raw or C3State.PRE_DEPLOY.value.to_bytes(1, "little")
+                
+                # Decode raw bytes to actual value
                 obj.value = obj.decode_raw(raw)
+            
+            # Increase the offset based on the length of raw data read from F-RAM.
             offset += size
 
     def clear_state(self):
         """
         Clears the F-RAM, except for cryptographic keys, and resets the RTC time.
         """
+        # Clear all the bytes in F-RAM
         self._fram.clear()
 
+        # Offset to track position in F-RAM
         offset = 0
+        
+        # Iterate over _fram_objs
         for obj in self._fram_objs:
+            # Skip over DOMAIN objects
             if obj.data_type == canopen.objectdictionary.DOMAIN:
                 continue
 
-            # Preserve cryptographic keys during a state clear.
+            # Preserve cryptographic keys in F-RAM when clearing state.
             if obj.name.startswith("crypto_key"):
                 raw = obj.value
                 raw_len = len(obj.default)
                 self._fram.write(offset, raw)
             else:
-                # For other objects, the length is determined by their raw encoding.
+                # Skip all other objects 
                 raw = obj.encode_raw(obj.value)
                 raw_len = len(raw)
-
+            
+            # Increase the offset and move to the next object location
             offset += raw_len
 
+        # Reset to a known baseline time (January 1, 2000 at midnight).
+        # Allows the system to start in a clean, predictable state.
         set_rtc_time(0)
